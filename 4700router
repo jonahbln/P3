@@ -81,12 +81,13 @@ class Router:
                 "withdrawal": self.handle_withdrawal,
                 "data": self.handle_data,
                 "dump": self.handle_dump,
-
             }
 
         # Call the corresponding function based on the message type, if it exists
             try:
                 # Attempt to get the corresponding handler and execute it
+                message_type = message_type.strip().lower()
+                print(message_type)
                 handler = switch[message_type]
                 handler(message_dict)
             except KeyError:
@@ -129,22 +130,39 @@ class Router:
         except Exception as e:
             print(f"Error processing update message: {e}")
         
-            
-            
-
-
-
-
-
 
     def handle_withdrawal(self, message):
         print("Processing a withdrawal message:", message)
 
     def handle_data(self, message):
-        print("Processing a withdrawal message:", message)
+        print("Processing a data message:", message)
+
+        destination_ip = message.get('dst')
+        print(len(self.bgp_table))
+        
+        for index, row in self.bgp_table.iterrows():
+            network_ip = row['network']
+            netmask = row['netmask']
+            print(network_ip)
+            print(destination_ip)
+
+
+            dest_bits = self.ip_to_int(destination_ip)
+            network_bits = self.ip_to_int(network_ip)
+            netmask_bits = self.ip_to_int(netmask)
+            print("network and destination checking:", network_ip, destination_ip)
+
+            if (dest_bits & netmask_bits == network_bits & netmask_bits):
+                print("network and destination HIT:", network_ip, destination_ip)
+                return network_ip
 
     def handle_dump(self, message):
-        print("Processing a withdrawal message:", message)
+        print("Processing a dump message:", message)
+
+    def ip_to_int(self, ip):
+        quads = ip.split('.')
+        binary_ip = (int(quads[0]) << 24) + (int(quads[1]) << 16) + (int(quads[2]) << 8) + int(quads[3])
+        return binary_ip
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='route packets')
