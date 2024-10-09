@@ -1,8 +1,21 @@
 #!/usr/bin/env -S python3 -u
 
 import argparse, socket, time, json, select, struct, sys, math
+import pandas as pd
+
 
 class Router:
+
+    # Define the columns and their expected types for an empty DataFrame
+    bgp_table = pd.DataFrame({
+    'network': pd.Series(dtype='str'),
+    'netmask': pd.Series(dtype='str'),
+    'peer': pd.Series(dtype='str'),
+    'localpref': pd.Series(dtype='int'),
+    'ASPath': pd.Series(dtype='object'),  # 'object' allows for lists
+    'selfOrigin': pd.Series(dtype='bool'),
+    'origin': pd.Series(dtype='str')
+    })
 
     relations = {}
     sockets = {}
@@ -39,9 +52,99 @@ class Router:
                         srcif = sock
                         break
                 msg = k.decode('utf-8')
+                self.process_message(msg)
 
                 print("Received message '%s' from %s" % (msg, srcif))
         return
+
+
+    def process_message(self, utf8_message):
+        try:
+        
+        # Print the decoded JSON message
+            print("Received JSON message:", utf8_message)
+
+        # Convert the JSON string to a hashtable
+            message_dict = json.loads(utf8_message)
+        
+        # Attempt to get the message type
+            try:
+                message_type = message_dict["type"]
+            except KeyError:
+                print("Message does not contain a 'type' field.")
+                return None
+
+        # Define a mapping of message types to their respective handlers
+            switch = {
+                "handshake": self.handle_handshake,
+                "update": self.handle_update,
+                "withdrawal": self.handle_withdrawal,
+                "data": self.handle_data,
+                "dump": self.handle_dump,
+
+            }
+
+        # Call the corresponding function based on the message type, if it exists
+            try:
+                # Attempt to get the corresponding handler and execute it
+                handler = switch[message_type]
+                handler(message_dict)
+            except KeyError:
+            # Handle unknown message types
+                print(f"Unknown message type: {message_type}")
+
+       
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON: {e}")
+            return None
+
+
+    # Handler methods for each message type:
+    def handle_handshake(self, message):
+        print("Processing a handshake message:", message)
+
+
+
+    def handle_update(self, message):
+        print("Processing an update message:", message)
+        try:
+        # Extract the 'msg' field, which is itself a JSON-like dictionary.
+            update_data = message.get('msg')
+
+            # Create a new DataFrame row from the 'msg' data
+            new_row = {
+                'network': update_data['network'],
+                'netmask': update_data['netmask'],
+                'peer': self.our_addr(update_data['network']),
+                'localref': update_data['localpref'],
+                'ASPath': update_data['ASPath'],
+                'selfOrigin': update_data['selfOrigin'],
+                'origin': update_data['origin']
+            }
+
+        # Append the new row to the BGP table
+            self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
+            print(f"Added new entry to BGP table: {new_row}")
+
+        except Exception as e:
+            print(f"Error processing update message: {e}")
+        
+            
+            
+
+
+
+
+
+
+    def handle_withdrawal(self, message):
+        print("Processing a withdrawal message:", message)
+
+    def handle_data(self, message):
+        print("Processing a withdrawal message:", message)
+
+    def handle_dump(self, message):
+        print("Processing a withdrawal message:", message)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='route packets')
