@@ -117,7 +117,7 @@ class Router:
                 'network': update_data['network'],
                 'netmask': update_data['netmask'],
                 'peer': self.our_addr(update_data['network']),
-                'localref': update_data['localpref'],
+                'localpref': update_data['localpref'],
                 'ASPath': update_data['ASPath'],
                 'selfOrigin': update_data['selfOrigin'],
                 'origin': update_data['origin']
@@ -158,6 +158,28 @@ class Router:
 
     def handle_dump(self, message):
         print("Processing a dump message:", message)
+
+        source_ip = message.get('src')
+
+        table_msg = []
+        for index, row in self.bgp_table.iterrows():
+            table_msg.append({
+                'network':row['network'],
+                'netmask':row['netmask'],
+                'peer':row['peer'],
+                'localpref':row['localpref'],
+                'ASPath':row['ASPath'],
+                'selfOrigin':row['selfOrigin'],
+                'origin':row['origin']})
+
+        return_message = {
+            'src' : self.our_addr(source_ip),
+            'dst' : source_ip,
+            'type' : "table",
+            'msg' : table_msg
+            }
+        
+        self.send(source_ip, json.dumps(return_message))
 
     def ip_to_int(self, ip):
         quads = ip.split('.')
