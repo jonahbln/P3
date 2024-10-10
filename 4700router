@@ -20,6 +20,7 @@ class Router:
     relations = {}
     sockets = {}
     ports = {}
+    neighbor_ips = []
 
     def __init__(self, asn, connections):
         print("Router at AS %s starting up" % asn)
@@ -31,6 +32,7 @@ class Router:
             self.sockets[neighbor].bind(('localhost', 0))
             self.ports[neighbor] = int(port)
             self.relations[neighbor] = relation
+            self.neighbor_ips.append(neighbor)
             self.send(neighbor, json.dumps({ "type": "handshake", "src": self.our_addr(neighbor), "dst": neighbor, "msg": {}  }))
 
     def our_addr(self, dst):
@@ -39,6 +41,12 @@ class Router:
         return "%d.%d.%d.%d" % (quads[0], quads[1], quads[2], quads[3])
 
     def send(self, network, message):
+        print("In send, sending to network: ", network)
+        print("In send, sending message: ", message)
+
+        print("In send, self.sockets[network]: ", self.sockets[network])
+        print("In send, self.ports[network]: ", self.ports[network])
+
         self.sockets[network].sendto(message.encode('utf-8'), ('localhost', self.ports[network]))
 
     def run(self):
@@ -69,18 +77,18 @@ class Router:
         
         # Attempt to get the message type
             try:
-                message_type = message_dict["type"]
+                message_type = message_dict['type']
             except KeyError:
                 print("Message does not contain a 'type' field.")
                 return None
 
         # Define a mapping of message types to their respective handlers
             switch = {
-                "handshake": self.handle_handshake,
-                "update": self.handle_update,
-                "withdrawal": self.handle_withdrawal,
-                "data": self.handle_data,
-                "dump": self.handle_dump,
+                'handshake': self.handle_handshake,
+                'update': self.handle_update,
+                'withdrawal': self.handle_withdrawal,
+                'data': self.handle_data,
+                'dump': self.handle_dump,
             }
 
         # Call the corresponding function based on the message type, if it exists
@@ -116,7 +124,7 @@ class Router:
             new_row = {
                 'network': update_data['network'],
                 'netmask': update_data['netmask'],
-                'peer': self.our_addr(update_data['network']),
+                'peer': self.int_to_ip(self.ip_to_int(update_data['network']) + 2),
                 'localpref': update_data['localpref'],
                 'ASPath': update_data['ASPath'],
                 'selfOrigin': update_data['selfOrigin'],
@@ -129,7 +137,22 @@ class Router:
 
         except Exception as e:
             print(f"Error processing update message: {e}")
-        
+
+        for neighbor in self.neighbor_ips:
+            msg = {
+                'netmask' : message['netmask'],
+                'network' : message['network'],
+                'ASPath' : message['ASPath']
+                }
+            return_message = {
+                'type' : 'update',
+                'src' : self.our_addr(neighbor),
+                'dst' : neighbor,
+                'msg' : msg
+                }
+            if message['src'] != neighbor:
+                print("Propegating update to peer at: ", neighbor)
+                self.send(neighbor, json.dumps(return_message))
 
     def handle_withdrawal(self, message):
         print("Processing a withdrawal message:", message)
@@ -137,9 +160,17 @@ class Router:
     def handle_data(self, message):
         print("Processing a data message:", message)
 
+
+        network_to_send = self.find_destination(message).get('peer')
+        self.send(network_to_send, json.dumps(message))
+
+    def find_destination(self, message):
         destination_ip = message.get('dst')
-        print(len(self.bgp_table))
-        
+        best_address = None
+        best_netmask = None
+        best_index = None; 
+
+
         for index, row in self.bgp_table.iterrows():
             network_ip = row['network']
             netmask = row['netmask']
@@ -154,7 +185,39 @@ class Router:
 
             if (dest_bits & netmask_bits == network_bits & netmask_bits):
                 print("network and destination HIT:", network_ip, destination_ip)
-                return network_ip
+                if (best_address == None):
+                    best_address = network_ip
+                    best_netmask = netmask_bits
+                    best_index = index; 
+
+                else: 
+                    if (self.better_prefix(self.ip_to_int(best_netmask), netmask_bits) == netmask_bits):
+                        best_address = network_ip
+                        best_netmask = netmask_bits
+                        best_index = index; 
+
+        return self.bgp_table.iloc[best_index]
+
+    def better_prefix(self, netmask1, netmask2):
+
+        posn1 = None
+        posn2 = None
+
+
+        # Iterate from right to left to find the first '1'
+        for i, bit in enumerate(reversed(bin(netmask1))):
+            if bit == '1':
+                posn1 = i 
+
+         # Iterate from right to left to find the first '1'
+        for i, bit in enumerate(reversed(bin(netmask2))):
+            if bit == '1':
+                posn2 = i 
+
+        if (posn1 < posn2):
+            return netmask1
+        else:
+            return netmask2
 
     def handle_dump(self, message):
         print("Processing a dump message:", message)
@@ -175,7 +238,7 @@ class Router:
         return_message = {
             'src' : self.our_addr(source_ip),
             'dst' : source_ip,
-            'type' : "table",
+            'type' : 'table',
             'msg' : table_msg
             }
         
@@ -185,6 +248,17 @@ class Router:
         quads = ip.split('.')
         binary_ip = (int(quads[0]) << 24) + (int(quads[1]) << 16) + (int(quads[2]) << 8) + int(quads[3])
         return binary_ip
+
+    def int_to_ip(self, binary_ip):
+        quads = [
+            (binary_ip >> 24) & 0xFF,
+            (binary_ip >> 16) & 0xFF,
+            (binary_ip >> 8) & 0xFF,
+            binary_ip & 0xFF
+        ]
+        
+        ip = '.'.join(map(str, quads))
+        return ip
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='route packets')
