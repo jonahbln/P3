@@ -17,6 +17,9 @@ class Router:
     'origin': pd.Series(dtype='str')
     })
 
+    withdrawal_history = []
+    update_history = []
+
     relations = {}
     sockets = {}
     ports = {}
@@ -24,7 +27,7 @@ class Router:
 
     def __init__(self, asn, connections):
         print("Router at AS %s starting up" % asn)
-        self.asn = asn
+        self.asn = asn 
         for relationship in connections:
             port, neighbor, relation = relationship.split("-")
 
@@ -109,34 +112,32 @@ class Router:
 
     def handle_update(self, message):
         print("Processing an update message:", message)
-        try:
-        # Extract the 'msg' field, which is itself a JSON-like dictionary.
-            update_data = message.get('msg')
+        self.update_history.append(message)
 
-            # Create a new DataFrame row from the 'msg' data
-            new_row = {
-                'network': update_data['network'],
-                'netmask': update_data['netmask'],
-                'peer': message['src'],
-                'localpref': update_data['localpref'],
-                'ASPath': update_data['ASPath'],
-                'selfOrigin': update_data['selfOrigin'],
-                'origin': update_data['origin']
-            }
+        update_data = message.get('msg')
+
+        # Create a new DataFrame row from the 'msg' data
+        new_row = {
+            'network': update_data['network'],
+            'netmask': update_data['netmask'],
+            'peer': message['src'],
+            'localpref': update_data['localpref'],
+            'ASPath': update_data['ASPath'],
+            'selfOrigin': update_data['selfOrigin'],
+            'origin': update_data['origin']
+        }
 
         # Append the new row to the BGP table
-            self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
-            print(f"Added new entry to BGP table: {new_row}")
+        self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
+        print(f"Added new entry to BGP table: {new_row}")
 
-        except Exception as e:
-            print(f"Error processing update message: {e}")
 
+        msg = {
+            'netmask' : message['netmask'],
+            'network' : message['network'],
+            'ASPath' : message['ASPath']
+            }
         for neighbor in self.neighbor_ips:
-            msg = {
-                'netmask' : message['netmask'],
-                'network' : message['network'],
-                'ASPath' : message['ASPath']
-                }
             return_message = {
                 'type' : 'update',
                 'src' : self.our_addr(neighbor),
@@ -144,11 +145,32 @@ class Router:
                 'msg' : msg
                 }
             if message['src'] != neighbor:
-                print("Propegating update to peer at: ", neighbor)
-                self.send(neighbor, json.dumps(return_message))
+                if self.relations[message['src']] == "customer":
+                    print("Propegating update to peer at: ", neighbor)
+                    self.send(neighbor, json.dumps(return_message))
+                else:
+                    if self.relations[neighbor] == "customer":
+                        print("Propegating update to peer at: ", neighbor)
+                        self.send(neighbor, json.dumps(return_message))
 
     def handle_withdrawal(self, message):
         print("Processing a withdrawal message:", message)
+        self.withdrawal_table.append(message) # save a copy of the withdrawal message in case we need it later
+        
+        for index, row in self.bgp_table.iterrows():
+            for i in range(0,len(message['msg'])):
+                if(message['src'] == row['peer'] and (row['network'] == message['msg'][i]['network'] and row['netmask'] == message['msg'][i]['netmask'])):
+                    self.bgp_table.pop(row)
+                    
+        for neighbor in self.neighbor_ips:
+            if message['src'] != neighbor:
+                if self.relations[message['src']] == "customer":
+                    print("Propegating withdrawl to peer at: ", neighbor)
+                    self.send(neighbor, json.dumps(message))
+                else:
+                    if self.relations[neighbor] == "customer":
+                        print("Propegating withdrawl to peer at: ", neighbor)
+                        self.send(neighbor, json.dumps(message))
 
     def handle_data(self, message):
         print("Processing a data message:", message)
