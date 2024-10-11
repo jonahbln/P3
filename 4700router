@@ -41,12 +41,6 @@ class Router:
         return "%d.%d.%d.%d" % (quads[0], quads[1], quads[2], quads[3])
 
     def send(self, network, message):
-        print("In send, sending to network: ", network)
-        print("In send, sending message: ", message)
-
-        print("In send, self.sockets[network]: ", self.sockets[network])
-        print("In send, self.ports[network]: ", self.ports[network])
-
         self.sockets[network].sendto(message.encode('utf-8'), ('localhost', self.ports[network]))
 
     def run(self):
@@ -95,7 +89,6 @@ class Router:
             try:
                 # Attempt to get the corresponding handler and execute it
                 message_type = message_type.strip().lower()
-                print(message_type)
                 handler = switch[message_type]
                 handler(message_dict)
             except KeyError:
@@ -124,7 +117,7 @@ class Router:
             new_row = {
                 'network': update_data['network'],
                 'netmask': update_data['netmask'],
-                'peer': self.int_to_ip(self.ip_to_int(update_data['network']) + 2),
+                'peer': message['src'],
                 'localpref': update_data['localpref'],
                 'ASPath': update_data['ASPath'],
                 'selfOrigin': update_data['selfOrigin'],
