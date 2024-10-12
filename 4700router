@@ -85,24 +85,38 @@ class Router:
                 print("Message does not contain a 'type' field.")
                 return None
 
-        # Define a mapping of message types to their respective handlers
-            switch = {
-                'handshake': self.handle_handshake,
-                'update': self.handle_update,
-                'withdrawal': self.handle_withdrawal,
-                'data': self.handle_data,
-                'dump': self.handle_dump,
-            }
+        # # Define a mapping of message types to their respective handlers
+        #     switch = {
+        #         'handshake': self.handle_handshake,
+        #         'update': self.handle_update,
+        #         'withdrawal': self.handle_withdrawal,
+        #         'data': self.handle_data,
+        #         'dump': self.handle_dump,
+        #     }
 
-        # Call the corresponding function based on the message type, if it exists
-            try:
-                # Attempt to get the corresponding handler and execute it
-                message_type = message_type.strip().lower()
-                handler = switch[message_type]
-                handler(message_dict)
-            except KeyError:
-            # Handle unknown message types
-                print(f"Unknown message type: {message_type}")
+            match message_type:
+                case 'handshake':
+                    self.handle_handshake(message_dict)
+                case 'update':
+                    self.handle_update(message_dict)
+                case 'withdrawal':
+                    self.handle_withdrawal(message_dict)
+                case 'data':
+                    self.handle_data(message_dict)
+                case 'dump':
+                    self.handle_dump(message_dict)
+                case _:
+                    print(f"Unknown message type: {message_type}")
+
+        # # Call the corresponding function based on the message type, if it exists
+        #     try:
+        #         # Attempt to get the corresponding handler and execute it
+        #         message_type = message_type.strip().lower()
+        #         handler = switch[message_type]
+        #         handler(message_dict)
+        #     except KeyError:
+        #     # Handle unknown message types
+        #         print(f"Unknown message type: {message_type}")
 
        
         except json.JSONDecodeError as e:
@@ -120,25 +134,26 @@ class Router:
         update_data = message.get('msg')
 
             # Create a new DataFrame row from the 'msg' data
-            new_row = {
-                'network': update_data['network'],
-                'netmask': update_data['netmask'],
-                'peer': message.get('src'),
-                'localref': update_data['localpref'],
-                'ASPath': update_data['ASPath'],
-                'selfOrigin': update_data['selfOrigin'],
-                'origin': update_data['origin']
-            }
+        new_row = {
+            'network': update_data['network'],
+            'netmask': update_data['netmask'],
+            'peer': message.get('src'),
+            'localpref': update_data['localpref'],
+            'ASPath': update_data['ASPath'],
+            'selfOrigin': update_data['selfOrigin'],
+            'origin': update_data['origin']
+        }
 
         # Append the new row to the BGP table
         self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
         print(f"Added new entry to BGP table: {new_row}")
 
-
+        ASPath = update_data['ASPath'].copy()
+        ASPath.insert(0, 14)
         msg = {
-            'netmask' : message['netmask'],
-            'network' : message['network'],
-            'ASPath' : message['ASPath']
+            'netmask' : update_data['netmask'],
+            'network' : update_data['network'],
+            'ASPath' : ASPath
             }
         for neighbor in self.neighbor_ips:
             return_message = {
@@ -147,12 +162,13 @@ class Router:
                 'dst' : neighbor,
                 'msg' : msg
                 }
+            print("Message source: " + message['src'] + " with relationship: " + self.relations[message['src']])
             if message['src'] != neighbor:
-                if self.relations[message['src']] == "customer":
+                if self.relations[message['src']] == "cust":
                     print("Propegating customer's update to peer at: ", neighbor)
                     self.send(neighbor, json.dumps(return_message))
                 else:
-                    if self.relations[neighbor] == "customer":
+                    if self.relations[neighbor] == "cust":
                         print("Propegating update to a customer at: ", neighbor)
                         self.send(neighbor, json.dumps(return_message))
 
@@ -248,6 +264,7 @@ class Router:
 
         table_msg = []
         for index, row in self.bgp_table.iterrows():
+            print(f"Dumping BGP row: {row}")
             table_msg.append({
                 'network':row['network'],
                 'netmask':row['netmask'],
