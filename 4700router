@@ -39,6 +39,12 @@ class Router:
         return "%d.%d.%d.%d" % (quads[0], quads[1], quads[2], quads[3])
 
     def send(self, network, message):
+        print("In send, sending to network: ", network)
+        print("In send, sending message: ", message)
+
+        print("In send, self.sockets[network]: ", self.sockets[network])
+        print("In send, self.ports[network]: ", self.ports[network])
+
         self.sockets[network].sendto(message.encode('utf-8'), ('localhost', self.ports[network]))
 
     def run(self):
@@ -116,8 +122,8 @@ class Router:
             new_row = {
                 'network': update_data['network'],
                 'netmask': update_data['netmask'],
-                'peer': self.our_addr(update_data['network']),
-                'localpref': update_data['localpref'],
+                'peer': message.get('src'),
+                'localref': update_data['localpref'],
                 'ASPath': update_data['ASPath'],
                 'selfOrigin': update_data['selfOrigin'],
                 'origin': update_data['origin']
@@ -137,9 +143,17 @@ class Router:
     def handle_data(self, message):
         print("Processing a data message:", message)
 
+        network_to_send = self.find_destination(message).get('peer')
+        self.send(network_to_send, json.dumps(message))
+
+
+    def find_destination(self, message):
         destination_ip = message.get('dst')
-        print(len(self.bgp_table))
-        
+        best_address = None
+        best_netmask = None
+        best_index = None; 
+
+
         for index, row in self.bgp_table.iterrows():
             network_ip = row['network']
             netmask = row['netmask']
@@ -154,7 +168,43 @@ class Router:
 
             if (dest_bits & netmask_bits == network_bits & netmask_bits):
                 print("network and destination HIT:", network_ip, destination_ip)
-                return network_ip
+                if (best_address == None):
+                    best_address = network_ip
+                    best_netmask = netmask_bits
+                    best_index = index; 
+
+                else: 
+                    if (self.better_prefix(self.ip_to_int(best_netmask), netmask_bits) == netmask_bits):
+                        best_address = network_ip
+                        best_netmask = netmask_bits
+                        best_index = index; 
+
+        return self.bgp_table.iloc[best_index]
+                
+    
+    def better_prefix(self, netmask1, netmask2):
+
+        posn1 = None
+        posn2 = None
+
+
+        # Iterate from right to left to find the first '1'
+        for i, bit in enumerate(reversed(bin(netmask1))):
+            if bit == '1':
+                posn1 = i 
+
+         # Iterate from right to left to find the first '1'
+        for i, bit in enumerate(reversed(bin(netmask2))):
+            if bit == '1':
+                posn2 = i 
+
+        if (posn1 < posn2):
+            return netmask1
+        else:
+            return netmask2
+
+    
+      
 
     def handle_dump(self, message):
         print("Processing a dump message:", message)
