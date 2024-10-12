@@ -149,7 +149,7 @@ class Router:
         print(f"Added new entry to BGP table: {new_row}")
 
         ASPath = update_data['ASPath'].copy()
-        ASPath.insert(0, 14)
+        ASPath.insert(0, self.asn)
         msg = {
             'netmask' : update_data['netmask'],
             'network' : update_data['network'],
@@ -221,13 +221,13 @@ class Router:
                 print("network and destination HIT:", network_ip, destination_ip)
                 if (best_address == None):
                     best_address = network_ip
-                    best_netmask = netmask_bits
+                    best_netmask = netmask
                     best_index = index; 
 
                 else: 
                     if (self.better_prefix(self.ip_to_int(best_netmask), netmask_bits) == netmask_bits):
                         best_address = network_ip
-                        best_netmask = netmask_bits
+                        best_netmask = netmask
                         best_index = index; 
 
         return self.bgp_table.iloc[best_index]
@@ -284,6 +284,10 @@ class Router:
         self.send(source_ip, json.dumps(return_message))
 
     def ip_to_int(self, ip):
+        print("In IP to int")
+        print(ip)
+        print("\n")
+
         quads = ip.split('.')
         binary_ip = (int(quads[0]) << 24) + (int(quads[1]) << 16) + (int(quads[2]) << 8) + int(quads[3])
         return binary_ip
