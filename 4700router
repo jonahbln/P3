@@ -208,7 +208,22 @@ class Router:
     def handle_data(self, message):
         print("Processing a data message:", message)
 
+        for index, row in self.bgp_table.iterrows():
+             print(f"Dumping BGP row: {row}")
+
         network_to_send = self.find_destination(message).get('peer')
+        
+        
+        if (network_to_send == None):
+            return_message = {
+                "src":  message[self.our_addr(message['src'])],        # Example: 172.65.0.1, i.e., the router's IP on the given port
+                "dst":  message['src'],   # Example: 134.0.88.77
+                "type": "no route",                   
+                "msg":  {}
+            }
+            self.send(message['src'], return_message)
+
+
         self.send(network_to_send, json.dumps(message))
 
 
@@ -239,6 +254,10 @@ class Router:
                     best_index = index; 
 
                 else: 
+                    if (netmask_bits == self.ip_to_int(best_netmask)):
+                        print("Netmasks are the same")
+
+
                     if (self.better_prefix(self.ip_to_int(best_netmask), netmask_bits) == netmask_bits):
                         best_address = network_ip
                         best_netmask = netmask
