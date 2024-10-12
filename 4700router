@@ -103,12 +103,9 @@ class Router:
             print(f"Failed to decode JSON: {e}")
             return None
 
-
     # Handler methods for each message type:
     def handle_handshake(self, message):
         print("Processing a handshake message:", message)
-
-
 
     def handle_update(self, message):
         print("Processing an update message:", message)
@@ -146,11 +143,11 @@ class Router:
                 }
             if message['src'] != neighbor:
                 if self.relations[message['src']] == "customer":
-                    print("Propegating update to peer at: ", neighbor)
+                    print("Propegating customer's update to peer at: ", neighbor)
                     self.send(neighbor, json.dumps(return_message))
                 else:
                     if self.relations[neighbor] == "customer":
-                        print("Propegating update to peer at: ", neighbor)
+                        print("Propegating update to a customer at: ", neighbor)
                         self.send(neighbor, json.dumps(return_message))
 
     def handle_withdrawal(self, message):
@@ -165,16 +162,15 @@ class Router:
         for neighbor in self.neighbor_ips:
             if message['src'] != neighbor:
                 if self.relations[message['src']] == "customer":
-                    print("Propegating withdrawl to peer at: ", neighbor)
+                    print("Propegating customer's withdrawl to peer at: ", neighbor)
                     self.send(neighbor, json.dumps(message))
                 else:
                     if self.relations[neighbor] == "customer":
-                        print("Propegating withdrawl to peer at: ", neighbor)
+                        print("Propegating withdrawl to customer at: ", neighbor)
                         self.send(neighbor, json.dumps(message))
 
     def handle_data(self, message):
         print("Processing a data message:", message)
-
 
         network_to_send = self.find_destination(message).get('peer')
         self.send(network_to_send, json.dumps(message))
@@ -269,8 +265,7 @@ class Router:
             (binary_ip >> 24) & 0xFF,
             (binary_ip >> 16) & 0xFF,
             (binary_ip >> 8) & 0xFF,
-            binary_ip & 0xFF
-        ]
+            binary_ip & 0xFF ]
         
         ip = '.'.join(map(str, quads))
         return ip
