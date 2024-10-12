@@ -44,6 +44,12 @@ class Router:
         return "%d.%d.%d.%d" % (quads[0], quads[1], quads[2], quads[3])
 
     def send(self, network, message):
+        print("In send, sending to network: ", network)
+        print("In send, sending message: ", message)
+
+        print("In send, self.sockets[network]: ", self.sockets[network])
+        print("In send, self.ports[network]: ", self.ports[network])
+
         self.sockets[network].sendto(message.encode('utf-8'), ('localhost', self.ports[network]))
 
     def run(self):
@@ -113,16 +119,16 @@ class Router:
 
         update_data = message.get('msg')
 
-        # Create a new DataFrame row from the 'msg' data
-        new_row = {
-            'network': update_data['network'],
-            'netmask': update_data['netmask'],
-            'peer': message['src'],
-            'localpref': update_data['localpref'],
-            'ASPath': update_data['ASPath'],
-            'selfOrigin': update_data['selfOrigin'],
-            'origin': update_data['origin']
-        }
+            # Create a new DataFrame row from the 'msg' data
+            new_row = {
+                'network': update_data['network'],
+                'netmask': update_data['netmask'],
+                'peer': message.get('src'),
+                'localref': update_data['localpref'],
+                'ASPath': update_data['ASPath'],
+                'selfOrigin': update_data['selfOrigin'],
+                'origin': update_data['origin']
+            }
 
         # Append the new row to the BGP table
         self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
@@ -175,6 +181,7 @@ class Router:
         network_to_send = self.find_destination(message).get('peer')
         self.send(network_to_send, json.dumps(message))
 
+
     def find_destination(self, message):
         destination_ip = message.get('dst')
         best_address = None
@@ -208,7 +215,8 @@ class Router:
                         best_index = index; 
 
         return self.bgp_table.iloc[best_index]
-
+                
+    
     def better_prefix(self, netmask1, netmask2):
 
         posn1 = None
@@ -229,6 +237,9 @@ class Router:
             return netmask1
         else:
             return netmask2
+
+    
+      
 
     def handle_dump(self, message):
         print("Processing a dump message:", message)
