@@ -229,9 +229,8 @@ class Router:
 
     def find_destination(self, message):
         destination_ip = message.get('dst')
-        best_address = None
-        best_netmask = None
-        best_index = None; 
+        best_index = None 
+        best_row = None
 
 
         for index, row in self.bgp_table.iterrows():
@@ -248,24 +247,83 @@ class Router:
 
             if (dest_bits & netmask_bits == network_bits & netmask_bits):
                 # print("network and destination HIT:", network_ip, destination_ip)
-                if (best_address == None):
-                    best_address = network_ip
-                    best_netmask = netmask
-                    best_index = index; 
+                if (best_index == None):
+                    best_index = index 
+                    best_row = row
 
-                else: 
-                    if (netmask_bits == self.ip_to_int(best_netmask)):
-                        print("Netmasks are the same")
+                 
+                elif (netmask_bits == self.ip_to_int(best_row.netmask)):
+                    print("Netmasks are the same")
+                    print(row.localpref)
+                    if (row.localpref > best_row.localpref):
+                        best_row = row
+                        best_index = index
+                    elif (row.localpref == best_row.localpref):
+                        print("Local Prefs are the same") 
+                        print(f"Dumping Best row: {best_row}")
+                        print(f"Dumping row: {row}")
 
+                        if (row.selfOrigin and not best_row.selfOrigin):
+                            print("Better selfOriginfound") 
+                            best_row = row
+                            best_index = index
+                        elif (row.selfOrigin == best_row.selfOrigin):
+                            if(len(row.ASPath) < len(best_row.ASPath)):
+                                best_row = row
+                                best_index = index
+                            elif (len(row.ASPath) == len(best_row.ASPath)):
+                                print("Row origin: ", row.origin)
+                                print("BestRow origin: ", best_row.origin)
+                                originScore = self.checkOrigin(row.origin, best_row.origin)
+                                if (originScore == 1):
+                                    best_row = row
+                                    best_index = index
+                                elif (originScore == 0):
+                                    bestRowPeer = self.ip_to_int(best_row.peer) 
+                                    rowPeer = self.ip_to_int(row.peer) 
+                                    print("Best Row Peer Addr: ", best_row.peer)
+                                    print("Row Peer Addr: ", row.peer)
+                                    print("Best Row Peer: ", bestRowPeer)
+                                    print("Row Peer: ", rowPeer)
+                                    if (rowPeer < bestRowPeer):
+                                        print("rowPeer Number is less")
+                                        best_row = row
+                                        best_index = index
 
-                    if (self.better_prefix(self.ip_to_int(best_netmask), netmask_bits) == netmask_bits):
-                        best_address = network_ip
-                        best_netmask = netmask
-                        best_index = index; 
+                elif (self.better_prefix(self.ip_to_int(best_row.netmask), netmask_bits) == netmask_bits):
+                    best_index = index
+                    best_row = row
+
 
         return self.bgp_table.iloc[best_index]
-                
-    
+
+    # Return 1 if origin 1 is better, 2 if origin 2 is better, and 0 if they are the same    
+    def checkOrigin(self, origin1, origin2):
+        score1 = None
+        score2 = None
+
+        if (origin1 == "IGP"):
+            score1 = 3
+        if (origin1 == "EGP"):
+            score1 = 2
+        if (origin1 == "UNK"):
+            score1 = 1
+
+        if (origin2 == "IGP"):
+            score2 = 3
+        if (origin2 == "EGP"):
+            score2 = 2
+        if (origin2 == "UNK"):
+            score2 = 1
+
+        if (score1 == score2):
+            return 0
+        if (score1 > score2):
+            return 1
+        if (score2 > score1):
+            return 2
+        
+
     def better_prefix(self, netmask1, netmask2):
 
         posn1 = None
@@ -281,6 +339,12 @@ class Router:
         for i, bit in enumerate(reversed(bin(netmask2))):
             if bit == '1':
                 posn2 = i 
+
+        if (posn1 is None and posn2 is not None):
+            return netmask2
+
+        if (posn2 is None and posn1 is not None):
+            return netmask1
 
         if (posn1 < posn2):
             return netmask1
