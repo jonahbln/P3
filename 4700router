@@ -63,13 +63,13 @@ class Router:
                         srcif = sock
                         break
                 msg = k.decode('utf-8')
-                self.process_message(msg)
+                self.process_message(msg, srcif)
 
                 print("Received message '%s' from %s" % (msg, srcif))
         return
 
 
-    def process_message(self, utf8_message):
+    def process_message(self, utf8_message, neighbor_src):
         try:
         
         # Print the decoded JSON message
@@ -102,7 +102,7 @@ class Router:
                 case 'withdraw':
                     self.handle_withdrawal(message_dict)
                 case 'data':
-                    self.handle_data(message_dict)
+                    self.handle_data(message_dict, neighbor_src)
                 case 'dump':
                     self.handle_dump(message_dict)
                 case _:
@@ -146,7 +146,7 @@ class Router:
 
         # Append the new row to the BGP table
         self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
-        print(f"Added new entry to BGP table: {new_row}")
+        # print(f"Added new entry to BGP table: {new_row}")
 
         ASPath = update_data['ASPath'].copy()
         ASPath.insert(0, self.asn)
@@ -205,24 +205,25 @@ class Router:
                         print("Propegating withdrawl to customer at: ", neighbor)
                         self.send(neighbor, json.dumps(message2))
 
-    def handle_data(self, message):
+    def handle_data(self, message, neighbor_src):
         print("Processing a data message:", message)
 
-        for index, row in self.bgp_table.iterrows():
-             print(f"Dumping BGP row: {row}")
+        # for index, row in self.bgp_table.iterrows():
+        #     print(f"Dumping BGP row: {row}")
 
         network_to_send = self.find_destination(message).get('peer')
+        print("Network to send:" + network_to_send)
+        print("Network source: " + message['src'])
         
-        
-        if (network_to_send == None):
+        if (network_to_send == None) or (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'provider') and (self.relations[network_to_send] == 'provider' or self.relations[network_to_send] == 'peer'):
             return_message = {
-                "src":  message[self.our_addr(message['src'])],        # Example: 172.65.0.1, i.e., the router's IP on the given port
+                "src":  self.our_addr(message['src']),        # Example: 172.65.0.1, i.e., the router's IP on the given port
                 "dst":  message['src'],   # Example: 134.0.88.77
-                "type": "no route",                   
+                "type": "no route",
                 "msg":  {}
             }
-            self.send(message['src'], return_message)
-
+            self.send(neighbor_src, json.dumps(return_message))
+            return
 
         self.send(network_to_send, json.dumps(message))
 
@@ -253,18 +254,18 @@ class Router:
 
                  
                 elif (netmask_bits == self.ip_to_int(best_row.netmask)):
-                    print("Netmasks are the same")
-                    print(row.localpref)
+                    # print("Netmasks are the same")
+                    # print(row.localpref)
                     if (row.localpref > best_row.localpref):
                         best_row = row
                         best_index = index
                     elif (row.localpref == best_row.localpref):
-                        print("Local Prefs are the same") 
-                        print(f"Dumping Best row: {best_row}")
-                        print(f"Dumping row: {row}")
+                        # print("Local Prefs are the same") 
+                        # print(f"Dumping Best row: {best_row}")
+                        # print(f"Dumping row: {row}")
 
                         if (row.selfOrigin and not best_row.selfOrigin):
-                            print("Better selfOriginfound") 
+                            # print("Better selfOriginfound") 
                             best_row = row
                             best_index = index
                         elif (row.selfOrigin == best_row.selfOrigin):
@@ -272,8 +273,8 @@ class Router:
                                 best_row = row
                                 best_index = index
                             elif (len(row.ASPath) == len(best_row.ASPath)):
-                                print("Row origin: ", row.origin)
-                                print("BestRow origin: ", best_row.origin)
+                                # print("Row origin: ", row.origin)
+                                # print("BestRow origin: ", best_row.origin)
                                 originScore = self.checkOrigin(row.origin, best_row.origin)
                                 if (originScore == 1):
                                     best_row = row
@@ -281,12 +282,12 @@ class Router:
                                 elif (originScore == 0):
                                     bestRowPeer = self.ip_to_int(best_row.peer) 
                                     rowPeer = self.ip_to_int(row.peer) 
-                                    print("Best Row Peer Addr: ", best_row.peer)
-                                    print("Row Peer Addr: ", row.peer)
-                                    print("Best Row Peer: ", bestRowPeer)
-                                    print("Row Peer: ", rowPeer)
+                                    # print("Best Row Peer Addr: ", best_row.peer)
+                                    # print("Row Peer Addr: ", row.peer)
+                                    # print("Best Row Peer: ", bestRowPeer)
+                                    # print("Row Peer: ", rowPeer)
                                     if (rowPeer < bestRowPeer):
-                                        print("rowPeer Number is less")
+                                        # print("rowPeer Number is less")
                                         best_row = row
                                         best_index = index
 
