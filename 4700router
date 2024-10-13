@@ -329,16 +329,17 @@ class Router:
         posn1 = None
         posn2 = None
 
-
         # Iterate from right to left to find the first '1'
         for i, bit in enumerate(reversed(bin(netmask1))):
             if bit == '1':
-                posn1 = i 
+                posn1 = i
+                break
 
          # Iterate from right to left to find the first '1'
         for i, bit in enumerate(reversed(bin(netmask2))):
             if bit == '1':
-                posn2 = i 
+                posn2 = i
+                break 
 
         if (posn1 is None and posn2 is not None):
             return netmask2
