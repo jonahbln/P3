@@ -85,39 +85,19 @@ class Router:
                 print("Message does not contain a 'type' field.")
                 return None
 
-        # # Define a mapping of message types to their respective handlers
-        #     switch = {
-        #         'handshake': self.handle_handshake,
-        #         'update': self.handle_update,
-        #         'withdrawal': self.handle_withdrawal,
-        #         'data': self.handle_data,
-        #         'dump': self.handle_dump,
-        #     }
-
             match message_type:
                 case 'handshake':
                     self.handle_handshake(message_dict)
                 case 'update':
-                    self.handle_update(message_dict)
+                    self.handle_update(message_dict, True)
                 case 'withdraw':
-                    self.handle_withdrawal(message_dict)
+                    self.handle_withdrawal(message_dict, True)
                 case 'data':
                     self.handle_data(message_dict, neighbor_src)
                 case 'dump':
                     self.handle_dump(message_dict)
                 case _:
                     print(f"Unknown message type: {message_type}")
-
-        # # Call the corresponding function based on the message type, if it exists
-        #     try:
-        #         # Attempt to get the corresponding handler and execute it
-        #         message_type = message_type.strip().lower()
-        #         handler = switch[message_type]
-        #         handler(message_dict)
-        #     except KeyError:
-        #     # Handle unknown message types
-        #         print(f"Unknown message type: {message_type}")
-
        
         except json.JSONDecodeError as e:
             print(f"Failed to decode JSON: {e}")
@@ -127,9 +107,10 @@ class Router:
     def handle_handshake(self, message):
         print("Processing a handshake message:", message)
 
-    def handle_update(self, message):
-        print("Processing an update message:", message)
-        self.update_history.append(message)
+    def handle_update(self, message, from_neighbor):
+        # print("Processing an update message:", message)
+        if from_neighbor:
+            self.update_history.append(message)
 
         update_data = message.get('msg')
 
@@ -148,48 +129,49 @@ class Router:
         self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
         # print(f"Added new entry to BGP table: {new_row}")
 
-        ASPath = update_data['ASPath'].copy()
-        ASPath.insert(0, self.asn)
-        msg = {
-            'netmask' : update_data['netmask'],
-            'network' : update_data['network'],
-            'ASPath' : ASPath
-            }
-        for neighbor in self.neighbor_ips:
-            return_message = {
-                'type' : 'update',
-                'src' : self.our_addr(neighbor),
-                'dst' : neighbor,
-                'msg' : msg
+        if from_neighbor:
+            ASPath = update_data['ASPath'].copy()
+            ASPath.insert(0, self.asn)
+            msg = {
+                'netmask' : update_data['netmask'],
+                'network' : update_data['network'],
+                'ASPath' : ASPath
                 }
-            # print("Message source: " + message['src'] + " with relationship: " + self.relations[message['src']])
-            if message['src'] != neighbor:
-                if self.relations[message['src']] == "cust":
-                    # print("Propegating customer's update to peer at: ", neighbor)
-                    self.send(neighbor, json.dumps(return_message))
-                else:
-                    if self.relations[neighbor] == "cust":
-                        # print("Propegating update to a customer at: ", neighbor)
+            for neighbor in self.neighbor_ips:
+                return_message = {
+                    'type' : 'update',
+                    'src' : self.our_addr(neighbor),
+                    'dst' : neighbor,
+                    'msg' : msg
+                    }
+                # print("Message source: " + message['src'] + " with relationship: " + self.relations[message['src']])
+                if message['src'] != neighbor:
+                    if self.relations[message['src']] == "cust":
+                        # print("Propegating customer's update to peer at: ", neighbor)
                         self.send(neighbor, json.dumps(return_message))
-        
-        self.aggregate()
+                    else:
+                        if self.relations[neighbor] == "cust":
+                            # print("Propegating update to a customer at: ", neighbor)
+                            self.send(neighbor, json.dumps(return_message))
+            
+            self.aggregate()
 
 
 
     def aggregate(self):
         self.bgp_table = self.bgp_table.sort_values(by=['network', 'netmask'], ascending=[True, False])
         self.bgp_table = self.bgp_table.reset_index(drop=True)
-        print("BGP Table Length: ", len(self.bgp_table))
+        # print("BGP Table Length: ", len(self.bgp_table))
         i = 0
         while i < len(self.bgp_table) - 1:
             current = self.bgp_table.iloc[i]
             next_entry = self.bgp_table.iloc[i + 1]
-            print(f"Dumping current row: {current}")
+            # print(f"Dumping current row: {current}")
             adjacent = self.is_adjacent(current, next_entry)
             same_attr = self.same_attributes(current, next_entry)
 
-            print("Are Numerically Adjacent?: ", adjacent)
-            print("Same Attributes?: ", same_attr)
+            # print("Are Numerically Adjacent?: ", adjacent)
+            # print("Same Attributes?: ", same_attr)
 
 
             if(adjacent and same_attr):
@@ -234,8 +216,8 @@ class Router:
 
 
     def is_adjacent(self, entry1, entry2):
-        print("Checking Network 1: " + entry1['network'] + " With Netmask: " + entry1['netmask'])
-        print("Against Network 2: " + entry2['network'] + " With Netmask: " + entry2['netmask'])
+        # print("Checking Network 1: " + entry1['network'] + " With Netmask: " + entry1['netmask'])
+        # print("Against Network 2: " + entry2['network'] + " With Netmask: " + entry2['netmask'])
 
         # Convert network addresses to integers
         network1Int = self.ip_to_int(entry1['network'])
@@ -251,10 +233,10 @@ class Router:
         block_size = 2 ** (32 - smallerPrefix)
         network1End = network1Int + block_size - 1
 
-        print("Final Calculations. Network1 int: ", network1Int)
-        print("Final Calculations. Block size: ", block_size)
-        print("Final Calculations. Network1 end: ", network1End)
-        print("Final Calculations. Network2 int: ", network2Int)
+        # print("Final Calculations. Network1 int: ", network1Int)
+        # print("Final Calculations. Block size: ", block_size)
+        # print("Final Calculations. Network1 end: ", network1End)
+        # print("Final Calculations. Network2 int: ", network2Int)
     
         return network2Int == network1Int + block_size or network1Int <= network2Int <= network1End
 
@@ -272,9 +254,10 @@ class Router:
                 entry1['ASPath'] == entry2['ASPath'])
     
 
-    def handle_withdrawal(self, message):
-        print("Processing a withdrawal message:", message)
-        self.withdrawal_history.append(message) 
+    def handle_withdrawal(self, message, from_neighbor):
+        # print("Processing a withdrawal message:", message)
+        if from_neighbor:
+            self.withdrawal_history.append(message) 
         
         for index, row in self.bgp_table.iterrows():
             for i in range(0,len(message['msg'])):
@@ -282,28 +265,38 @@ class Router:
                     self.bgp_table.drop(index, inplace=True)
                     self.bgp_table.reset_index(drop=True, inplace=True)
                     
-        print("withdraw message with source: " + message['src'] + " and relation: " + self.relations[message['src']])
-        for neighbor in self.neighbor_ips:
-            if message['src'] != neighbor:
-                if self.relations[message['src']] == "cust":
-                    message2 = {
-                        'src':self.our_addr(neighbor),
-                        'dst':neighbor,
-                        'type':'withdraw',
-                        'msg':message['msg']
-                    }
-                    print("Propegating customer's withdrawl to peer at: ", neighbor)
-                    self.send(neighbor, json.dumps(message2))
-                else:
-                    if self.relations[neighbor] == "cust":
+        if from_neighbor:
+            print("withdraw message with source: " + message['src'] + " and relation: " + self.relations[message['src']])
+            for neighbor in self.neighbor_ips:
+                if message['src'] != neighbor:
+                    if self.relations[message['src']] == "cust":
                         message2 = {
-                        'src':self.our_addr(neighbor),
-                        'dst':neighbor,
-                        'type':'withdraw',
-                        'msg':message['msg']
+                            'src':self.our_addr(neighbor),
+                            'dst':neighbor,
+                            'type':'withdraw',
+                            'msg':message['msg']
                         }
-                        print("Propegating withdrawl to customer at: ", neighbor)
+                        print("Propegating customer's withdrawl to peer at: ", neighbor)
                         self.send(neighbor, json.dumps(message2))
+                    else:
+                        if self.relations[neighbor] == "cust":
+                            message2 = {
+                            'src':self.our_addr(neighbor),
+                            'dst':neighbor,
+                            'type':'withdraw',
+                            'msg':message['msg']
+                            }
+                            print("Propegating withdrawl to customer at: ", neighbor)
+                            self.send(neighbor, json.dumps(message2))
+            self.disaggregate()
+
+    def disaggregate(self):
+        self.bgp_table = pd.DataFrame(columns=self.bgp_table.columns)
+        for msg in self.update_history:
+            self.handle_update(msg, False)
+        for msg in self.withdrawal_history:
+            self.handle_withdrawal(msg, False)   
+        self.aggregate()
 
     def handle_data(self, message, neighbor_src):
         print("Processing a data message:", message)
@@ -315,7 +308,7 @@ class Router:
         print("Network to send:", network_to_send)
         print("Network source: " + message['src'])
         
-        if (network_to_send == -1) or (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'provider') and (self.relations[network_to_send] == 'provider' or self.relations[network_to_send] == 'peer'):
+        if (network_to_send == -1) or (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'provider') and (self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'provider' or self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'peer'):
             return_message = {
                 "src":  self.our_addr(message['src']),        # Example: 172.65.0.1, i.e., the router's IP on the given port
                 "dst":  message['src'],   # Example: 134.0.88.77
@@ -397,7 +390,7 @@ class Router:
         if (best_index == None):
             return -1
 
-        print("PRINTING BEST INDEX: ", best_index)
+        # print("PRINTING BEST INDEX: ", best_index)
         return best_index
 
     # Return 1 if origin 1 is better, 2 if origin 2 is better, and 0 if they are the same    
