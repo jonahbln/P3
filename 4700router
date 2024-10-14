@@ -179,15 +179,14 @@ class Router:
     def aggregate(self):
         self.bgp_table = self.bgp_table.sort_values(by=['network', 'netmask'], ascending=[True, False])
         self.bgp_table = self.bgp_table.reset_index(drop=True)
-        # Step 2: Iterate through the sorted table
         print("BGP Table Length: ", len(self.bgp_table))
         i = 0
         while i < len(self.bgp_table) - 1:
             current = self.bgp_table.iloc[i]
             next_entry = self.bgp_table.iloc[i + 1]
             print(f"Dumping current row: {current}")
-            adjacent = self.is_numerically_adjacent(current, next_entry)
-            same_attr = self.have_same_attributes(current, next_entry)
+            adjacent = self.is_adjacent(current, next_entry)
+            same_attr = self.same_attributes(current, next_entry)
 
             print("Are Numerically Adjacent?: ", adjacent)
             print("Same Attributes?: ", same_attr)
@@ -195,105 +194,76 @@ class Router:
 
             if(adjacent and same_attr):
                 combined_entry = self.combine_networks(current, next_entry)
-                # Remove the two original entries and insert the combined one
                 self.bgp_table.iloc[i] = combined_entry
                 self.bgp_table = self.bgp_table.drop(self.bgp_table.index[i + 1]).reset_index(drop=True)
                 self.bgp_table = self.bgp_table.reset_index(drop=True)
                 i = 0
             else:
                 i = i+1
-            #print(f"Dumping row: {row}")
 
     def combine_networks(self, entry1, entry2):
-        # Convert network addresses to integers
-        network1_int = self.ip_to_int(entry1['network'])
-        network2_int = self.ip_to_int(entry2['network'])
+        network1Int = self.ip_to_int(entry1['network'])
+        network2Int = self.ip_to_int(entry2['network'])
     
-        # Find the starting network (lower address) and the ending network (higher address)
-        start_network = min(network1_int, network2_int)
-        end_network = max(network1_int, network2_int) + (2 ** (32 - self.netmask_to_prefix_length(entry2['netmask']))) - 1
+        startNetwork = min(network1Int, network2Int)
+        endNetwork = max(network1Int, network2Int) + (2 ** (32 - self.netmask_to_prefix_length(entry2['netmask']))) - 1
     
-        # Calculate the range covered by the two networks
-        address_range = end_network - start_network + 1
+        address_range = endNetwork - startNetwork + 1
 
-        # Find the smallest prefix length that can cover the entire range of addresses
         new_prefix_length = 32
         while (2 ** (32 - new_prefix_length)) < address_range:
             new_prefix_length -= 1
 
-        # Convert the new prefix length back to a dotted decimal netmask
         new_netmask = self.prefix_length_to_netmask(new_prefix_length)
 
-        # Return the combined network entry, keeping the other attributes intact
         return {
-            'network': self.int_to_ip(start_network),  # The starting network of the coalesced range
+            'network': self.int_to_ip(startNetwork),  
             'netmask': new_netmask,
-            'ASPath': entry1['ASPath'],  # Assuming ASPath and other attributes are the same
+            'ASPath': entry1['ASPath'],  
             'localpref': entry1['localpref'],
             'peer': entry1['peer'],
             'origin': entry1['origin'],
             'selfOrigin': entry1['selfOrigin'],
         }
     
-    
-    def decrement_netmask(self, netmask):
-        # Convert the netmask to a prefix length
-        prefix_length = self.netmask_to_prefix_length(netmask)
-    
-        # Decrement the prefix length by 1
-        new_prefix_length = prefix_length - 1
-    
-        # Convert the new prefix length back to a dotted-decimal netmask
-        new_netmask = self.prefix_length_to_netmask(new_prefix_length)
-    
-        return new_netmask
 
     def prefix_length_to_netmask(self, prefix_length):
-        # Create a 32-bit binary string where the first 'prefix_length' bits are 1 and the rest are 0
         binary_netmask = ('1' * prefix_length).ljust(32, '0')
-    
-        # Split the binary string into four 8-bit parts and convert each part to a decimal number
         netmask = [str(int(binary_netmask[i:i+8], 2)) for i in range(0, 32, 8)]
-    
-        # Join the parts together with dots to form the dotted-decimal format
         return '.'.join(netmask)
 
 
-    def is_numerically_adjacent(self, entry1, entry2):
+    def is_adjacent(self, entry1, entry2):
         print("Checking Network 1: " + entry1['network'] + " With Netmask: " + entry1['netmask'])
         print("Against Network 2: " + entry2['network'] + " With Netmask: " + entry2['netmask'])
 
         # Convert network addresses to integers
-        network1_int = self.ip_to_int(entry1['network'])
-        network2_int = self.ip_to_int(entry2['network'])
+        network1Int = self.ip_to_int(entry1['network'])
+        network2Int = self.ip_to_int(entry2['network'])
     
         # Convert netmask strings to prefix lengths
-        prefix_length1 = self.netmask_to_prefix_length(entry1['netmask'])
-        prefix_length2 = self.netmask_to_prefix_length(entry2['netmask'])
+        prefixLength1 = self.netmask_to_prefix_length(entry1['netmask'])
+        prefixLength2 = self.netmask_to_prefix_length(entry2['netmask'])
     
-        # Use the less specific (smaller) prefix length to calculate the block size
-        smaller_prefix_length = min(prefix_length1, prefix_length2)
+        smallerPrefix = min(prefixLength1, prefixLength2)
     
         # Calculate the network block size based on the smaller prefix length
-        block_size = 2 ** (32 - smaller_prefix_length)
-    
-        # Calculate the end of Network 1's range
-        network1_end = network1_int + block_size - 1
+        block_size = 2 ** (32 - smallerPrefix)
+        network1End = network1Int + block_size - 1
 
-        print("Final Calculations. Network1 int: ", network1_int)
+        print("Final Calculations. Network1 int: ", network1Int)
         print("Final Calculations. Block size: ", block_size)
-        print("Final Calculations. Network1 end: ", network1_end)
-        print("Final Calculations. Network2 int: ", network2_int)
+        print("Final Calculations. Network1 end: ", network1End)
+        print("Final Calculations. Network2 int: ", network2Int)
     
-        # Check if Network 2 is exactly adjacent to Network 1, or contained within Network 1's range
-        return network2_int == network1_int + block_size or network1_int <= network2_int <= network1_end
+        return network2Int == network1Int + block_size or network1Int <= network2Int <= network1End
 
 
     def netmask_to_prefix_length(self, netmask):
         binary_str = ''.join(f"{int(octet):08b}" for octet in netmask.split('.'))
         return binary_str.count('1')
 
-    def have_same_attributes(self, entry1, entry2):
+    def same_attributes(self, entry1, entry2):
         # Compare next-hop and other attributes
         return (entry1['peer'] == entry2['peer'] and
                 entry1['localpref'] == entry2['localpref'] and
@@ -304,7 +274,7 @@ class Router:
 
     def handle_withdrawal(self, message):
         print("Processing a withdrawal message:", message)
-        self.withdrawal_history.append(message) # save a copy of the withdrawal message in case we need it later
+        self.withdrawal_history.append(message) 
         
         for index, row in self.bgp_table.iterrows():
             for i in range(0,len(message['msg'])):
