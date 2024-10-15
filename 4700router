@@ -6,7 +6,7 @@ import pandas as pd
 
 class Router:
 
-    # Define the columns and their expected types for an empty DataFrame
+    # define the columns and their expected types for an empty DataFrame to act as our routing table
     bgp_table = pd.DataFrame({
     'network': pd.Series(dtype='str'),
     'netmask': pd.Series(dtype='str'),
@@ -17,13 +17,16 @@ class Router:
     'origin': pd.Series(dtype='str')
     })
 
+    # lists to keep a history of announcements which come in handy if rebuilding the routing table
     withdrawal_history = []
     update_history = []
+
+    # a list of ips of each neighbor we are directly connected to
+    neighbor_ips = []
 
     relations = {}
     sockets = {}
     ports = {}
-    neighbor_ips = []
 
     def __init__(self, asn, connections):
         print("Router at AS %s starting up" % asn)
@@ -58,11 +61,9 @@ class Router:
                         break
                 msg = k.decode('utf-8')
                 self.process_message(msg, srcif)
-
-                print("Received message '%s' from %s" % (msg, srcif))
         return
 
-
+    # takes in a message from a neighbor, and uses the associated handler to process the message
     def process_message(self, utf8_message, neighbor_src):
         try:
         # Convert the JSON string to a hashtable
@@ -75,6 +76,7 @@ class Router:
                 print("Message does not contain a 'type' field.")
                 return None
 
+            # match the message type with the proper handler function
             match message_type:
                 case 'update':
                     self.handle_update(message_dict, True)
@@ -91,6 +93,7 @@ class Router:
             print(f"Failed to decode JSON: {e}")
             return None
 
+    # takes in an update announcemnet, and adds it to our routing table, then propegates it to neighbors, dpeending on peer relations
     def handle_update(self, message, from_neighbor):
         if from_neighbor:
             self.update_history.append(message)
@@ -111,6 +114,8 @@ class Router:
         # Append the new row to the BGP table
         self.bgp_table = pd.concat([self.bgp_table, pd.DataFrame([new_row])], ignore_index=True)
 
+        # from_neighbor is false only when we are rebuilding the routing table, 
+        # we wouldnt want to send any announcements in this case
         if from_neighbor:
             ASPath = update_data['ASPath'].copy()
             ASPath.insert(0, self.asn)
@@ -119,24 +124,24 @@ class Router:
                 'network' : update_data['network'],
                 'ASPath' : ASPath
                 }
-            for neighbor in self.neighbor_ips:
+            for neighbor in self.neighbor_ips: 
                 return_message = {
                     'type' : 'update',
                     'src' : self.our_addr(neighbor),
                     'dst' : neighbor,
                     'msg' : msg
                     }
+                # check the relationship with each neighbor, sending the update along if necessary
                 if message['src'] != neighbor:
                     if self.relations[message['src']] == "cust":
                         self.send(neighbor, json.dumps(return_message))
                     else:
                         if self.relations[neighbor] == "cust":
                             self.send(neighbor, json.dumps(return_message))
-            
+
             self.aggregate()
 
-
-
+    # perform aggregation on our existing routing table after each update
     def aggregate(self):
         self.bgp_table = self.bgp_table.sort_values(by=['network', 'netmask'], ascending=[True, False])
         self.bgp_table = self.bgp_table.reset_index(drop=True)
@@ -148,7 +153,6 @@ class Router:
             adjacent = self.is_adjacent(current, next_entry)
             same_attr = self.same_attributes(current, next_entry)
             if(adjacent and same_attr):
-                print("AGGREGATING")
                 combined_entry = self.combine_networks(current, next_entry)
                 self.bgp_table.iloc[i] = combined_entry
                 self.bgp_table = self.bgp_table.drop(self.bgp_table.index[i + 1]).reset_index(drop=True)
@@ -182,12 +186,10 @@ class Router:
             'selfOrigin': entry1['selfOrigin'],
         }
     
-
     def prefix_length_to_netmask(self, prefix_length):
         binary_netmask = ('1' * prefix_length).ljust(32, '0')
         netmask = [str(int(binary_netmask[i:i+8], 2)) for i in range(0, 32, 8)]
         return '.'.join(netmask)
-
 
     def is_adjacent(self, entry1, entry2):
         # Convert network addresses to integers
@@ -206,7 +208,6 @@ class Router:
     
         return (network2Int == (network1Int + block_size)) or (network1Int <= network2Int <= network1End)
 
-
     def netmask_to_prefix_length(self, netmask):
         binary_str = ''.join(f"{int(octet):08b}" for octet in netmask.split('.'))
         return binary_str.count('1')
@@ -219,22 +220,24 @@ class Router:
                 entry1['origin'] == entry2['origin'] and 
                 entry1['ASPath'] == entry2['ASPath'] and
                 self.netmask_to_prefix_length(entry1['netmask']) == self.netmask_to_prefix_length(entry2['netmask']))
-    
 
+    # handle withdrwa announcments, removing affected routes from our table, and deaggregating as needed
     def handle_withdrawal(self, message, from_neighbor):
         if from_neighbor:
             self.withdrawal_history.append(message) 
         
         for index, row in self.bgp_table.iterrows():
-            for i in range(0,len(message['msg'])):
+            for i in range(0,len(message['msg'])): #check if the announcment pertains to any of our routes, and drop it if so
                 if(message['src'] == row['peer'] and (row['network'] == message['msg'][i]['network'] and row['netmask'] == message['msg'][i]['netmask'])):
                     self.bgp_table.drop(index, inplace=True)
                     self.bgp_table.reset_index(drop=True, inplace=True)
                     
+        # from_neighbor is false only when we are rebuilding the routing table, 
+        # we wouldnt want to send any announcements in this case
         if from_neighbor:
             for neighbor in self.neighbor_ips:
                 if message['src'] != neighbor:
-                    if self.relations[message['src']] == "cust":
+                    if self.relations[message['src']] == "cust": #check the peer relations, and send message along if necessary
                         message2 = {
                             'src':self.our_addr(neighbor),
                             'dst':neighbor,
@@ -253,6 +256,7 @@ class Router:
                             self.send(neighbor, json.dumps(message2))
             self.disaggregate()
 
+    # rebuild the routing table from all of our stored announcments, and then aggregate from there
     def disaggregate(self):
         self.bgp_table = pd.DataFrame(columns=self.bgp_table.columns)
         for msg in self.update_history:
@@ -261,34 +265,26 @@ class Router:
             self.handle_withdrawal(msg, False)   
         self.aggregate()
 
+    # take in a data message, and find the best route, sending out the data message if such route exists and is legal
     def handle_data(self, message, neighbor_src):
-        print("Processing a data message:", message)
-
         network_to_send = self.find_destination(message)
-        print("Network to send:", network_to_send)
-        print("Network source: " + message['src'])
-        
-        print("Neighbor SRC relationship: ",self.relations[neighbor_src])
-        print("Destination Peer relationship: ",self.relations[self.bgp_table.iloc[network_to_send].get('peer')])
 
-        if (network_to_send == -1):
-            return_message = {
+        no_route_message = {
                 "src":  self.our_addr(message['src']),
                 "dst":  message['src'],
                 "type": "no route",
                 "msg":  {}
             }
-            self.send(neighbor_src, json.dumps(return_message))
-        elif (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'prov') and (self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'prov' or self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'peer'): 
-            return_message = {
-                "src":  self.our_addr(message['src']),
-                "dst":  message['src'],
-                "type": "no route",
-                "msg":  {}
-            }
-            self.send(neighbor_src, json.dumps(return_message))
-        else:
-            print("SENDING")   
+        if (network_to_send == -1): # if there is no route in the routing table for this data message, send no route
+            self.send(neighbor_src, json.dumps(no_route_message))
+
+        elif ((self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'prov') and
+            (self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'prov' 
+            or self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'peer')):
+            # if the peer/prov relationship would be unprofitable, send no route
+            self.send(neighbor_src, json.dumps(no_route_message))
+
+        else: # send the data
             self.send(self.bgp_table.iloc[network_to_send].get('peer'), json.dumps(message))
 
 
@@ -297,39 +293,26 @@ class Router:
         best_index = None 
         best_row = None
 
-
         for index, row in self.bgp_table.iterrows():
             network_ip = row['network']
             netmask = row['netmask']
-            # print(network_ip)
-            # print(destination_ip)
-
 
             dest_bits = self.ip_to_int(destination_ip)
             network_bits = self.ip_to_int(network_ip)
             netmask_bits = self.ip_to_int(netmask)
-            # print("network and destination checking:", network_ip, destination_ip)
 
             if (dest_bits & netmask_bits == network_bits & netmask_bits):
-                # print("network and destination HIT:", network_ip, destination_ip)
                 if (best_index == None):
                     best_index = index 
                     best_row = row
-
-                 
+                
                 elif (netmask_bits == self.ip_to_int(best_row.netmask)):
-                    # print("Netmasks are the same")
-                    # print(row.localpref)
                     if (row.localpref > best_row.localpref):
                         best_row = row
                         best_index = index
                     elif (row.localpref == best_row.localpref):
-                        # print("Local Prefs are the same") 
-                        # print(f"Dumping Best row: {best_row}")
-                        # print(f"Dumping row: {row}")
 
                         if (row.selfOrigin and not best_row.selfOrigin):
-                            # print("Better selfOriginfound") 
                             best_row = row
                             best_index = index
                         elif (row.selfOrigin == best_row.selfOrigin):
@@ -337,8 +320,6 @@ class Router:
                                 best_row = row
                                 best_index = index
                             elif (len(row.ASPath) == len(best_row.ASPath)):
-                                # print("Row origin: ", row.origin)
-                                # print("BestRow origin: ", best_row.origin)
                                 originScore = self.checkOrigin(row.origin, best_row.origin)
                                 if (originScore == 1):
                                     best_row = row
@@ -346,12 +327,7 @@ class Router:
                                 elif (originScore == 0):
                                     bestRowPeer = self.ip_to_int(best_row.peer) 
                                     rowPeer = self.ip_to_int(row.peer) 
-                                    # print("Best Row Peer Addr: ", best_row.peer)
-                                    # print("Row Peer Addr: ", row.peer)
-                                    # print("Best Row Peer: ", bestRowPeer)
-                                    # print("Row Peer: ", rowPeer)
                                     if (rowPeer < bestRowPeer):
-                                        # print("rowPeer Number is less")
                                         best_row = row
                                         best_index = index
 
@@ -359,7 +335,6 @@ class Router:
                     best_index = index
                     best_row = row
 
-        # print("PRINTING BEST INDEX: ", best_index)
         if (best_index == None):
             return -1
 
@@ -394,7 +369,6 @@ class Router:
         
 
     def better_prefix(self, netmask1, netmask2):
-
         posn1 = None
         posn2 = None
 
@@ -421,9 +395,7 @@ class Router:
         else:
             return netmask2
 
-    
-      
-
+    # take in a dump message, and reply with sending our routing table
     def handle_dump(self, message):
         source_ip = message.get('src')
 
@@ -447,11 +419,13 @@ class Router:
         
         self.send(source_ip, json.dumps(return_message))
 
+    # convert an string ip to binary
     def ip_to_int(self, ip):
         quads = ip.split('.')
         binary_ip = (int(quads[0]) << 24) + (int(quads[1]) << 16) + (int(quads[2]) << 8) + int(quads[3])
         return binary_ip
 
+    # convert a binary ip to a string
     def int_to_ip(self, binary_ip):
         quads = [
             (binary_ip >> 24) & 0xFF,
