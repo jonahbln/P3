@@ -148,6 +148,7 @@ class Router:
             adjacent = self.is_adjacent(current, next_entry)
             same_attr = self.same_attributes(current, next_entry)
             if(adjacent and same_attr):
+                print("AGGREGATING")
                 combined_entry = self.combine_networks(current, next_entry)
                 self.bgp_table.iloc[i] = combined_entry
                 self.bgp_table = self.bgp_table.drop(self.bgp_table.index[i + 1]).reset_index(drop=True)
@@ -267,7 +268,10 @@ class Router:
         print("Network to send:", network_to_send)
         print("Network source: " + message['src'])
         
-        if (network_to_send == -1) or (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'provider') and (self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'provider' or self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'peer'):
+        print("Neighbor SRC relationship: ",self.relations[neighbor_src])
+        print("Destination Peer relationship: ",self.relations[self.bgp_table.iloc[network_to_send].get('peer')])
+
+        if (network_to_send == -1):
             return_message = {
                 "src":  self.our_addr(message['src']),
                 "dst":  message['src'],
@@ -275,7 +279,16 @@ class Router:
                 "msg":  {}
             }
             self.send(neighbor_src, json.dumps(return_message))
-        else:   
+        elif (self.relations[neighbor_src] == 'peer' or self.relations[neighbor_src] == 'prov') and (self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'prov' or self.relations[self.bgp_table.iloc[network_to_send].get('peer')] == 'peer'): 
+            return_message = {
+                "src":  self.our_addr(message['src']),
+                "dst":  message['src'],
+                "type": "no route",
+                "msg":  {}
+            }
+            self.send(neighbor_src, json.dumps(return_message))
+        else:
+            print("SENDING")   
             self.send(self.bgp_table.iloc[network_to_send].get('peer'), json.dumps(message))
 
 
