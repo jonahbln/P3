@@ -143,6 +143,7 @@ class Router:
 
     # perform aggregation on our existing routing table after each update
     def aggregate(self):
+        # sort our table by network and netmask
         self.bgp_table = self.bgp_table.sort_values(by=['network', 'netmask'], ascending=[True, False])
         self.bgp_table = self.bgp_table.reset_index(drop=True)
         i = 0
@@ -150,9 +151,11 @@ class Router:
             current = self.bgp_table.iloc[i]
             next_entry = self.bgp_table.iloc[i + 1]
 
+            # check if the two routes have adjacent address spaces and the same attributes
             adjacent = self.is_adjacent(current, next_entry)
             same_attr = self.same_attributes(current, next_entry)
             if(adjacent and same_attr):
+                # if so, combine them into one entry
                 combined_entry = self.combine_networks(current, next_entry)
                 self.bgp_table.iloc[i] = combined_entry
                 self.bgp_table = self.bgp_table.drop(self.bgp_table.index[i + 1]).reset_index(drop=True)
@@ -161,6 +164,7 @@ class Router:
             else:
                 i = i+1
 
+    # helper function for combining route entries
     def combine_networks(self, entry1, entry2):
         network1Int = self.ip_to_int(entry1['network'])
         network2Int = self.ip_to_int(entry2['network'])
@@ -186,11 +190,13 @@ class Router:
             'selfOrigin': entry1['selfOrigin'],
         }
     
+    # helper function to convert a prefix length back to its whole netmask as a string
     def prefix_length_to_netmask(self, prefix_length):
         binary_netmask = ('1' * prefix_length).ljust(32, '0')
         netmask = [str(int(binary_netmask[i:i+8], 2)) for i in range(0, 32, 8)]
         return '.'.join(netmask)
 
+    # helper function to check if two routes are in adjacent addressing spaces
     def is_adjacent(self, entry1, entry2):
         # Convert network addresses to integers
         network1Int = self.ip_to_int(entry1['network'])
@@ -208,10 +214,12 @@ class Router:
     
         return (network2Int == (network1Int + block_size)) or (network1Int <= network2Int <= network1End)
 
+    # helper function to convert a netmask to its prefix length
     def netmask_to_prefix_length(self, netmask):
         binary_str = ''.join(f"{int(octet):08b}" for octet in netmask.split('.'))
         return binary_str.count('1')
 
+    # helper function to check if two routes have the same attributes, are able to be merged
     def same_attributes(self, entry1, entry2):
         # Compare next-hop and other attributes
         return (entry1['peer'] == entry2['peer'] and
@@ -287,12 +295,13 @@ class Router:
         else: # send the data
             self.send(self.bgp_table.iloc[network_to_send].get('peer'), json.dumps(message))
 
-
+    # helper function to find the destination of a given DATA message
     def find_destination(self, message):
         destination_ip = message.get('dst')
         best_index = None 
         best_row = None
 
+        # for each entry in the routing table
         for index, row in self.bgp_table.iterrows():
             network_ip = row['network']
             netmask = row['netmask']
@@ -301,6 +310,7 @@ class Router:
             network_bits = self.ip_to_int(network_ip)
             netmask_bits = self.ip_to_int(netmask)
 
+            # compare to the data message, checking each of the scenarios as a hierarchy
             if (dest_bits & netmask_bits == network_bits & netmask_bits):
                 if (best_index == None):
                     best_index = index 
@@ -367,7 +377,7 @@ class Router:
         if (score2 > score1):
             return 2
         
-
+    # helper functoin to return the better of two netmasks when looking for a route
     def better_prefix(self, netmask1, netmask2):
         posn1 = None
         posn2 = None
